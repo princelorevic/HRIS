@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Employees</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.47.0/iconfont/tabler-icons.min.css">
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="app-root" class="app-shell"></div>
+
+<div class="modal-backdrop" id="employee-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="modal-title">Add employee</h3>
+      <button class="modal-close" id="modal-close"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <form id="employee-form">
+        <input type="hidden" id="f-employee-id" />
+        <div class="field-row">
+          <div class="field"><label>Employee code</label><input id="f-code" placeholder="EMP-0002" required /></div>
+          <div class="field"><label>Date hired</label><input type="date" id="f-date-hired" required /></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>First name</label><input id="f-first-name" required /></div>
+          <div class="field"><label>Last name</label><input id="f-last-name" required /></div>
+        </div>
+        <div class="field"><label>Middle name</label><input id="f-middle-name" /></div>
+        <div class="field-row">
+          <div class="field"><label>Department</label><select id="f-department"><option value="">-- Select --</option></select></div>
+          <div class="field"><label>Position</label><select id="f-position"><option value="">-- Select --</option></select></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Supervisor</label><select id="f-supervisor"><option value="">-- None --</option></select></div>
+          <div class="field"><label>Employment status</label>
+            <select id="f-status">
+              <option value="probationary">Probationary</option>
+              <option value="regular">Regular</option>
+              <option value="contractual">Contractual</option>
+              <option value="part-time">Part-time</option>
+              <option value="resigned">Resigned</option>
+              <option value="terminated">Terminated</option>
+            </select>
+          </div>
+        </div>
+        <div class="field"><label>Contact number</label><input id="f-contact" /></div>
+        <div class="field"><label>Address</label><input id="f-address" /></div>
+
+        <div class="field-row">
+          <div class="field"><label>Emergency contact name</label><input id="f-ec-name" /></div>
+          <div class="field"><label>Emergency contact number</label><input id="f-ec-number" /></div>
+        </div>
+        <div class="field"><label>Emergency contact relation</label><input id="f-ec-relation" /></div>
+
+        <div id="login-fields-wrap">
+          <div class="field" style="border-top:1px solid var(--border); padding-top:16px;">
+            <label style="display:flex; align-items:center; gap:8px; font-weight:600;">
+              <input type="checkbox" id="f-create-login" style="width:auto;" /> Create login account for this employee
+            </label>
+          </div>
+          <div id="login-subfields" class="hidden">
+            <div class="field-row">
+              <div class="field"><label>Username</label><input id="f-username" /></div>
+              <div class="field"><label>Email</label><input type="email" id="f-email" /></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label>Temporary password</label><input type="text" id="f-password" /></div>
+              <div class="field"><label>System role</label>
+                <select id="f-role">
+                  <option value="employee">Employee</option>
+                  <option value="supervisor">Supervisor</option>
+                  <option value="hr">HR / Admin</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button type="button" class="btn" id="cancel-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="save-btn">Save employee</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/toast.js"></script>
+<script src="js/layout.js"></script>
+<script>
+(async () => {
+  const user = await HrisLayout.init({ page: 'employees', title: user_role_title() });
+  if (!user) return;
+  function user_role_title() {
+    const u = JSON.parse(localStorage.getItem('hris_user') || '{}');
+    return u.role === 'supervisor' ? 'My team' : 'Employees';
+  }
+
+  const isHr = user.role === 'hr';
+  const el = document.getElementById('page-content');
+  let currentPage = 1;
+  let departments = [];
+  let positions = [];
+  let allEmployeesForSupervisorSelect = [];
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div>
+        <h1>${isHr ? 'Employees' : 'My team'}</h1>
+        <div class="subtitle">${isHr ? 'Manage employee profiles, status, and login accounts.' : 'View your team members and their status.'}</div>
+      </div>
+      ${isHr ? `<button class="btn btn-primary" id="add-employee-btn"><i class="ti ti-plus"></i> Add employee</button>` : ''}
+    </div>
+
+    <div class="card card-pad">
+      <div class="toolbar">
+        <div class="search-box"><i class="ti ti-search"></i><input id="search-input" placeholder="Search name or employee code..." /></div>
+        <select id="filter-department"><option value="">All departments</option></select>
+        <select id="filter-status">
+          <option value="">All statuses</option>
+          <option value="regular">Regular</option>
+          <option value="probationary">Probationary</option>
+          <option value="contractual">Contractual</option>
+          <option value="part-time">Part-time</option>
+          <option value="resigned">Resigned</option>
+          <option value="terminated">Terminated</option>
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Employee</th><th>Department</th><th>Position</th><th>Status</th><th>Date hired</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="employees-tbody"></tbody>
+        </table>
+      </div>
+      <div class="pagination" id="pagination"></div>
+    </div>
+  `;
+
+  await loadLookups();
+  await loadEmployees();
+
+  document.getElementById('search-input').addEventListener('input', debounce(() => { currentPage = 1; loadEmployees(); }, 350));
+  document.getElementById('filter-department').addEventListener('change', () => { currentPage = 1; loadEmployees(); });
+  document.getElementById('filter-status').addEventListener('change', () => { currentPage = 1; loadEmployees(); });
+
+  if (isHr) {
+    document.getElementById('add-employee-btn').addEventListener('click', () => openModal());
+    document.getElementById('modal-close').addEventListener('click', closeModal);
+    document.getElementById('cancel-btn').addEventListener('click', closeModal);
+    document.getElementById('f-create-login').addEventListener('change', (e) => {
+      document.getElementById('login-subfields').classList.toggle('hidden', !e.target.checked);
+    });
+    document.getElementById('employee-form').addEventListener('submit', saveEmployee);
+  }
+
+  async function loadLookups() {
+    try {
+      [departments, positions] = await Promise.all([
+        HrisApi.get('/organization/departments'),
+        HrisApi.get('/organization/positions')
+      ]);
+      const deptOptions = departments.map((d) => `<option value="${d.department_id}">${escapeHtml(d.name)}</option>`).join('');
+      document.getElementById('filter-department').insertAdjacentHTML('beforeend', deptOptions);
+
+      if (isHr) {
+        document.getElementById('f-department').insertAdjacentHTML('beforeend', deptOptions);
+        document.getElementById('f-position').insertAdjacentHTML('beforeend', positions.map((p) => `<option value="${p.position_id}">${escapeHtml(p.title)}</option>`).join(''));
+
+        const res = await HrisApi.get('/employees', { limit: 200 });
+        allEmployeesForSupervisorSelect = res.data;
+        document.getElementById('f-supervisor').insertAdjacentHTML('beforeend',
+          allEmployeesForSupervisorSelect.map((e) => `<option value="${e.employee_id}">${escapeHtml(e.first_name + ' ' + e.last_name)}</option>`).join(''));
+      }
+    } catch (err) { showToast(err.message, 'error'); }
+  }
+
+  async function loadEmployees() {
+    const tbody = document.getElementById('employees-tbody');
+    tbody.innerHTML = `<tr><td colspan="6" class="text-muted">Loading...</td></tr>`;
+    try {
+      const res = await HrisApi.get('/employees', {
+        search: document.getElementById('search-input').value,
+        department_id: document.getElementById('filter-department').value,
+        status: document.getElementById('filter-status').value,
+        page: currentPage, limit: 15
+      });
+
+      if (!res.data.length) {
+        tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><i class="ti ti-users"></i>No employees found.</div></td></tr>`;
+      } else {
+        tbody.innerHTML = res.data.map((e) => `
+          <tr>
+            <td><strong>${escapeHtml(e.first_name + ' ' + e.last_name)}</strong><div class="text-muted" style="font-size:12px;">${escapeHtml(e.employee_code)}</div></td>
+            <td>${escapeHtml(e.department_name || '-')}</td>
+            <td>${escapeHtml(e.position_title || '-')}</td>
+            <td><span class="badge ${statusBadgeClass(e.employment_status)}">${e.employment_status}</span></td>
+            <td>${formatDate(e.date_hired)}</td>
+            <td style="text-align:right;">
+              ${isHr ? `
+                <button class="btn btn-sm" data-edit="${e.employee_id}"><i class="ti ti-edit"></i></button>
+                <button class="btn btn-sm" data-deactivate="${e.employee_id}"><i class="ti ti-user-off"></i></button>
+              ` : `<a class="btn btn-sm" href="profile.html?id=${e.employee_id}">View</a>`}
+            </td>
+          </tr>
+        `).join('');
+      }
+
+      renderPagination(res.pagination);
+
+      if (isHr) {
+        tbody.querySelectorAll('[data-edit]').forEach((btn) => btn.addEventListener('click', () => openModal(btn.dataset.edit)));
+        tbody.querySelectorAll('[data-deactivate]').forEach((btn) => btn.addEventListener('click', () => deactivateEmployee(btn.dataset.deactivate)));
+      }
+    } catch (err) {
+      tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><i class="ti ti-alert-circle"></i>${escapeHtml(err.message)}</div></td></tr>`;
+    }
+  }
+
+  function renderPagination(p) {
+    const el = document.getElementById('pagination');
+    if (!p || p.total === 0) { el.innerHTML = ''; return; }
+    const totalPages = Math.max(1, Math.ceil(p.total / p.limit));
+    el.innerHTML = `
+      <span>Page ${p.page} of ${totalPages} (${p.total} total)</span>
+      <div class="btns">
+        <button class="btn btn-sm" id="prev-page" ${p.page <= 1 ? 'disabled' : ''}>Previous</button>
+        <button class="btn btn-sm" id="next-page" ${p.page >= totalPages ? 'disabled' : ''}>Next</button>
+      </div>
+    `;
+    document.getElementById('prev-page')?.addEventListener('click', () => { currentPage--; loadEmployees(); });
+    document.getElementById('next-page')?.addEventListener('click', () => { currentPage++; loadEmployees(); });
+  }
+
+  async function openModal(employeeId) {
+    document.getElementById('employee-form').reset();
+    document.getElementById('login-subfields').classList.add('hidden');
+    document.getElementById('f-employee-id').value = employeeId || '';
+    document.getElementById('modal-title').textContent = employeeId ? 'Edit employee' : 'Add employee';
+    document.getElementById('login-fields-wrap').classList.toggle('hidden', !!employeeId);
+
+    if (employeeId) {
+      try {
+        const emp = await HrisApi.get(`/employees/${employeeId}`);
+        document.getElementById('f-code').value = emp.employee_code;
+        document.getElementById('f-code').disabled = true;
+        document.getElementById('f-date-hired').value = emp.date_hired;
+        document.getElementById('f-first-name').value = emp.first_name;
+        document.getElementById('f-last-name').value = emp.last_name;
+        document.getElementById('f-middle-name').value = emp.middle_name || '';
+        document.getElementById('f-department').value = emp.department_id || '';
+        document.getElementById('f-position').value = emp.position_id || '';
+        document.getElementById('f-supervisor').value = emp.supervisor_id || '';
+        document.getElementById('f-status').value = emp.employment_status;
+        document.getElementById('f-contact').value = emp.contact_number || '';
+        document.getElementById('f-address').value = emp.address || '';
+        document.getElementById('f-ec-name').value = emp.emergency_contact_name || '';
+        document.getElementById('f-ec-number').value = emp.emergency_contact_number || '';
+        document.getElementById('f-ec-relation').value = emp.emergency_contact_relation || '';
+      } catch (err) { showToast(err.message, 'error'); return; }
+    } else {
+      document.getElementById('f-code').disabled = false;
+    }
+    document.getElementById('employee-modal').classList.add('open');
+  }
+
+  function closeModal() { document.getElementById('employee-modal').classList.remove('open'); }
+
+  async function saveEmployee(e) {
+    e.preventDefault();
+    const employeeId = document.getElementById('f-employee-id').value;
+    const payload = {
+      employee_code: document.getElementById('f-code').value,
+      date_hired: document.getElementById('f-date-hired').value,
+      first_name: document.getElementById('f-first-name').value,
+      last_name: document.getElementById('f-last-name').value,
+      middle_name: document.getElementById('f-middle-name').value,
+      department_id: document.getElementById('f-department').value || null,
+      position_id: document.getElementById('f-position').value || null,
+      supervisor_id: document.getElementById('f-supervisor').value || null,
+      employment_status: document.getElementById('f-status').value,
+      contact_number: document.getElementById('f-contact').value,
+      address: document.getElementById('f-address').value,
+      emergency_contact_name: document.getElementById('f-ec-name').value,
+      emergency_contact_number: document.getElementById('f-ec-number').value,
+      emergency_contact_relation: document.getElementById('f-ec-relation').value
+    };
+
+    if (!employeeId && document.getElementById('f-create-login').checked) {
+      payload.create_login = true;
+      payload.username = document.getElementById('f-username').value;
+      payload.email = document.getElementById('f-email').value;
+      payload.password = document.getElementById('f-password').value;
+      payload.role = document.getElementById('f-role').value;
+    }
+
+    const saveBtn = document.getElementById('save-btn');
+    saveBtn.disabled = true; saveBtn.textContent = 'Saving...';
+    try {
+      if (employeeId) {
+        await HrisApi.put(`/employees/${employeeId}`, payload);
+        showToast('Employee updated.', 'success');
+      } else {
+        await HrisApi.post('/employees', payload);
+        showToast('Employee created.', 'success');
+      }
+      closeModal();
+      loadEmployees();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      saveBtn.disabled = false; saveBtn.textContent = 'Save employee';
+    }
+  }
+
+  async function deactivateEmployee(id) {
+    if (!confirm('Deactivate this employee? Their login access will be disabled.')) return;
+    try {
+      await HrisApi.del(`/employees/${id}`);
+      showToast('Employee deactivated.', 'success');
+      loadEmployees();
+    } catch (err) { showToast(err.message, 'error'); }
+  }
+
+  function debounce(fn, ms) {
+    let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+  }
+})();
+</script>
+</body>
+</html>

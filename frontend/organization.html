@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Organization</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.47.0/iconfont/tabler-icons.min.css">
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="app-root" class="app-shell"></div>
+
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/toast.js"></script>
+<script src="js/layout.js"></script>
+<script>
+(async () => {
+  const user = await HrisLayout.init({ page: 'organization', title: 'Organization' });
+  if (!user) return;
+  if (user.role !== 'hr') {
+    document.getElementById('page-content').innerHTML = `<div class="empty-state"><i class="ti ti-lock"></i>This page is only available to HR.</div>`;
+    return;
+  }
+  const el = document.getElementById('page-content');
+
+  el.innerHTML = `
+    <div class="page-head"><div><h1>Organization</h1><div class="subtitle">Departments, positions, and reporting structure.</div></div></div>
+
+    <div class="grid-2" style="margin-bottom:20px;">
+      <div class="card card-pad">
+        <div class="flex" style="justify-content:space-between; align-items:center; margin-bottom:14px;">
+          <div class="section-title" style="margin:0;">Departments</div>
+          <button class="btn btn-sm btn-primary" id="add-dept-btn"><i class="ti ti-plus"></i> Add</button>
+        </div>
+        <div id="dept-form-wrap" class="hidden" style="margin-bottom:14px; padding:12px; background:var(--bg-surface-soft); border-radius:8px;">
+          <input type="hidden" id="dept-id" />
+          <div class="field"><label>Name</label><input id="dept-name" /></div>
+          <div class="field"><label>Description</label><input id="dept-desc" /></div>
+          <div class="form-actions"><button class="btn btn-sm" id="dept-cancel">Cancel</button><button class="btn btn-sm btn-primary" id="dept-save">Save</button></div>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Name</th><th>Employees</th><th></th></tr></thead>
+          <tbody id="dept-tbody"></tbody>
+        </table></div>
+      </div>
+
+      <div class="card card-pad">
+        <div class="flex" style="justify-content:space-between; align-items:center; margin-bottom:14px;">
+          <div class="section-title" style="margin:0;">Positions</div>
+          <button class="btn btn-sm btn-primary" id="add-pos-btn"><i class="ti ti-plus"></i> Add</button>
+        </div>
+        <div id="pos-form-wrap" class="hidden" style="margin-bottom:14px; padding:12px; background:var(--bg-surface-soft); border-radius:8px;">
+          <input type="hidden" id="pos-id" />
+          <div class="field"><label>Title</label><input id="pos-title" /></div>
+          <div class="field"><label>Department</label><select id="pos-dept"></select></div>
+          <div class="form-actions"><button class="btn btn-sm" id="pos-cancel">Cancel</button><button class="btn btn-sm btn-primary" id="pos-save">Save</button></div>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Title</th><th>Department</th><th></th></tr></thead>
+          <tbody id="pos-tbody"></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <div class="card card-pad">
+      <div class="section-title">Employee hierarchy</div>
+      <div id="hierarchy-wrap"></div>
+    </div>
+  `;
+
+  await loadDepartments();
+  await loadPositions();
+  await loadHierarchy();
+
+  document.getElementById('add-dept-btn').addEventListener('click', () => openDeptForm());
+  document.getElementById('dept-cancel').addEventListener('click', () => document.getElementById('dept-form-wrap').classList.add('hidden'));
+  document.getElementById('dept-save').addEventListener('click', saveDept);
+
+  document.getElementById('add-pos-btn').addEventListener('click', () => openPosForm());
+  document.getElementById('pos-cancel').addEventListener('click', () => document.getElementById('pos-form-wrap').classList.add('hidden'));
+  document.getElementById('pos-save').addEventListener('click', savePos);
+
+  async function loadDepartments() {
+    const tbody = document.getElementById('dept-tbody');
+    const rows = await HrisApi.get('/organization/departments');
+    tbody.innerHTML = rows.map((d) => `
+      <tr><td>${escapeHtml(d.name)}</td><td>${d.employee_count}</td>
+      <td style="text-align:right;">
+        <button class="btn btn-sm" data-edit-dept='${JSON.stringify(d).replace(/'/g, "&apos;")}'><i class="ti ti-edit"></i></button>
+        <button class="btn btn-sm" data-del-dept="${d.department_id}"><i class="ti ti-trash"></i></button>
+      </td></tr>
+    `).join('') || `<tr><td colspan="3" class="text-muted">No departments yet.</td></tr>`;
+
+    tbody.querySelectorAll('[data-edit-dept]').forEach((btn) => btn.addEventListener('click', () => openDeptForm(JSON.parse(btn.dataset.editDept.replace(/&apos;/g, "'")))));
+    tbody.querySelectorAll('[data-del-dept]').forEach((btn) => btn.addEventListener('click', () => deleteDept(btn.dataset.delDept)));
+
+    document.getElementById('pos-dept').innerHTML = rows.map((d) => `<option value="${d.department_id}">${escapeHtml(d.name)}</option>`).join('');
+  }
+
+  function openDeptForm(d) {
+    document.getElementById('dept-form-wrap').classList.remove('hidden');
+    document.getElementById('dept-id').value = d ? d.department_id : '';
+    document.getElementById('dept-name').value = d ? d.name : '';
+    document.getElementById('dept-desc').value = d ? (d.description || '') : '';
+  }
+
+  async function saveDept() {
+    const id = document.getElementById('dept-id').value;
+    const payload = { name: document.getElementById('dept-name').value, description: document.getElementById('dept-desc').value };
+    if (!payload.name) return showToast('Department name is required.', 'error');
+    try {
+      if (id) await HrisApi.put(`/organization/departments/${id}`, payload);
+      else await HrisApi.post('/organization/departments', payload);
+      showToast('Department saved.', 'success');
+      document.getElementById('dept-form-wrap').classList.add('hidden');
+      loadDepartments();
+    } catch (err) { showToast(err.message, 'error'); }
+  }
+
+  async function deleteDept(id) {
+    if (!confirm('Delete this department?')) return;
+    try { await HrisApi.del(`/organization/departments/${id}`); showToast('Department deleted.', 'success'); loadDepartments(); }
+    catch (err) { showToast(err.message, 'error'); }
+  }
+
+  async function loadPositions() {
+    const tbody = document.getElementById('pos-tbody');
+    const rows = await HrisApi.get('/organization/positions');
+    tbody.innerHTML = rows.map((p) => `
+      <tr><td>${escapeHtml(p.title)}</td><td>${escapeHtml(p.department_name || '-')}</td>
+      <td style="text-align:right;">
+        <button class="btn btn-sm" data-edit-pos='${JSON.stringify(p).replace(/'/g, "&apos;")}'><i class="ti ti-edit"></i></button>
+        <button class="btn btn-sm" data-del-pos="${p.position_id}"><i class="ti ti-trash"></i></button>
+      </td></tr>
+    `).join('') || `<tr><td colspan="3" class="text-muted">No positions yet.</td></tr>`;
+
+    tbody.querySelectorAll('[data-edit-pos]').forEach((btn) => btn.addEventListener('click', () => openPosForm(JSON.parse(btn.dataset.editPos.replace(/&apos;/g, "'")))));
+    tbody.querySelectorAll('[data-del-pos]').forEach((btn) => btn.addEventListener('click', () => deletePos(btn.dataset.delPos)));
+  }
+
+  function openPosForm(p) {
+    document.getElementById('pos-form-wrap').classList.remove('hidden');
+    document.getElementById('pos-id').value = p ? p.position_id : '';
+    document.getElementById('pos-title').value = p ? p.title : '';
+    document.getElementById('pos-dept').value = p ? (p.department_id || '') : '';
+  }
+
+  async function savePos() {
+    const id = document.getElementById('pos-id').value;
+    const payload = { title: document.getElementById('pos-title').value, department_id: document.getElementById('pos-dept').value || null };
+    if (!payload.title) return showToast('Position title is required.', 'error');
+    try {
+      if (id) await HrisApi.put(`/organization/positions/${id}`, payload);
+      else await HrisApi.post('/organization/positions', payload);
+      showToast('Position saved.', 'success');
+      document.getElementById('pos-form-wrap').classList.add('hidden');
+      loadPositions();
+    } catch (err) { showToast(err.message, 'error'); }
+  }
+
+  async function deletePos(id) {
+    if (!confirm('Delete this position?')) return;
+    try { await HrisApi.del(`/organization/positions/${id}`); showToast('Position deleted.', 'success'); loadPositions(); }
+    catch (err) { showToast(err.message, 'error'); }
+  }
+
+  async function loadHierarchy() {
+    const wrap = document.getElementById('hierarchy-wrap');
+    const rows = await HrisApi.get('/organization/hierarchy');
+    const byDept = {};
+    rows.forEach((r) => {
+      const key = r.department_name || 'Unassigned';
+      byDept[key] = byDept[key] || [];
+      byDept[key].push(r);
+    });
+
+    wrap.innerHTML = Object.entries(byDept).map(([dept, emps]) => {
+      const supervisors = emps.filter((e) => emps.some((x) => x.supervisor_id === e.employee_id));
+      const topLevel = emps.filter((e) => !e.supervisor_id);
+      return `
+        <div style="margin-bottom:18px;">
+          <div style="font-weight:600; margin-bottom:8px;">${escapeHtml(dept)}</div>
+          ${emps.map((e) => `
+            <div style="padding:8px 12px; margin-bottom:4px; background:var(--bg-surface-soft); border-radius:8px; display:flex; justify-content:space-between; font-size:13px;">
+              <span>${e.supervisor_id ? '&nbsp;&nbsp;&nbsp;↳ ' : ''}${escapeHtml(e.first_name + ' ' + e.last_name)}</span>
+              <span class="text-muted">${escapeHtml(e.position_title || '-')}</span>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }).join('') || `<div class="empty-state"><i class="ti ti-sitemap"></i>No employees yet.</div>`;
+  }
+})();
+</script>
+</body>
+</html>

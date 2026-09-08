@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sign in · HRIS</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.47.0/iconfont/tabler-icons.min.css">
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-logo">
+      <img id="login-logo-img" src="assets/logo-default.svg" alt="Company logo" onerror="this.src='assets/logo-default.svg'" />
+      <div class="company-name" id="login-company-name">HRIS</div>
+    </div>
+    <div class="login-sub">Sign in to your account</div>
+
+    <div class="login-error" id="login-error"></div>
+
+    <form id="login-form">
+      <div class="field">
+        <label for="username">Username or email</label>
+        <input type="text" id="username" autocomplete="username" placeholder="juan.delacruz" required />
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" autocomplete="current-password" placeholder="Enter your password" required />
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center; padding:11px;" id="login-btn">
+        Sign in
+      </button>
+    </form>
+  </div>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script>
+  (async () => {
+    // already logged in? go straight to dashboard
+    if (localStorage.getItem('hris_token')) {
+      location.href = 'dashboard.html';
+      return;
+    }
+    try {
+      const settings = await HrisApi.get('/settings');
+      if (settings.logo_url) {
+        const src = settings.logo_url.startsWith('/uploads') ? `${UPLOADS_BASE}${settings.logo_url}` : settings.logo_url;
+        document.getElementById('login-logo-img').src = src;
+      }
+      if (settings.company_name) {
+        document.getElementById('login-company-name').textContent = settings.company_name;
+      }
+    } catch (e) { /* fall back to defaults */ }
+  })();
+
+  const form = document.getElementById('login-form');
+  const errorBox = document.getElementById('login-error');
+  const btn = document.getElementById('login-btn');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.classList.remove('show');
+    btn.disabled = true;
+    btn.textContent = 'Signing in...';
+
+    try {
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const { token, user } = await HrisApi.post('/auth/login', { username, password });
+      localStorage.setItem('hris_token', token);
+      localStorage.setItem('hris_user', JSON.stringify(user));
+      location.href = 'dashboard.html';
+    } catch (err) {
+      errorBox.textContent = err.message || 'Unable to sign in.';
+      errorBox.classList.add('show');
+      btn.disabled = false;
+      btn.textContent = 'Sign in';
+    }
+  });
+</script>
+</body>
+</html>

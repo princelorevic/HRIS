@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Leave Management</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.47.0/iconfont/tabler-icons.min.css">
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="app-root" class="app-shell"></div>
+
+<div class="modal-backdrop" id="apply-modal">
+  <div class="modal">
+    <div class="modal-head"><h3>Apply for leave</h3><button class="modal-close" id="apply-modal-close"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <form id="apply-form">
+        <div class="field">
+          <label>Leave type</label>
+          <select id="f-leave-type" required></select>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>From</label><input type="date" id="f-date-from" required /></div>
+          <div class="field"><label>To</label><input type="date" id="f-date-to" required /></div>
+        </div>
+        <div class="field"><label>Reason</label><textarea id="f-reason" rows="3" placeholder="Briefly explain the reason for your leave"></textarea></div>
+        <div class="form-actions">
+          <button type="button" class="btn" id="apply-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="apply-submit">Submit request</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/toast.js"></script>
+<script src="js/layout.js"></script>
+<script>
+(async () => {
+  const user = await HrisLayout.init({ page: 'leaves', title: 'Leave management' });
+  if (!user) return;
+  const el = document.getElementById('page-content');
+  const canApprove = user.role === 'supervisor' || user.role === 'hr';
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div><h1>Leave management</h1><div class="subtitle">Apply for leave, track balances, and manage approvals.</div></div>
+      <button class="btn btn-primary" id="apply-btn"><i class="ti ti-plus"></i> Apply for leave</button>
+    </div>
+
+    <div class="card card-pad" style="margin-bottom:20px;">
+      <div class="section-title">My leave balance (${new Date().getFullYear()})</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Leave type</th><th>Total</th><th>Used</th><th>Remaining</th></tr></thead>
+        <tbody id="balance-tbody"></tbody>
+      </table></div>
+    </div>
+
+    ${canApprove ? `
+    <div class="card card-pad" style="margin-bottom:20px;">
+      <div class="section-title">${user.role === 'supervisor' ? 'Pending your approval' : 'Awaiting HR approval'}</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Employee</th><th>Type</th><th>From</th><th>To</th><th>Days</th><th>Reason</th><th></th></tr></thead>
+        <tbody id="approvals-tbody"></tbody>
+      </table></div>
+    </div>
+    ` : ''}
+
+    <div class="card card-pad">
+      <div class="section-title">${canApprove ? 'All leave requests' : 'My leave history'}</div>
+      <div class="table-wrap"><table>
+        <thead><tr>${canApprove ? '<th>Employee</th>' : ''}<th>Type</th><th>From</th><th>To</th><th>Days</th><th>Status</th><th></th></tr></thead>
+        <tbody id="history-tbody"></tbody>
+      </table></div>
+    </div>
+  `;
+
+  let leaveTypes = [];
+  await loadLeaveTypes();
+  await loadBalance();
+  await loadHistory();
+  if (canApprove) await loadApprovals();
+
+  document.getElementById('apply-btn').addEventListener('click', () => document.getElementById('apply-modal').classList.add('open'));
+  document.getElementById('apply-modal-close').addEventListener('click', closeApplyModal);
+  document.getElementById('apply-cancel').addEventListener('click', closeApplyModal);
+  document.getElementById('apply-form').addEventListener('submit', submitLeave);
+
+  function closeApplyModal() { document.getElementById('apply-modal').classList.remove('open'); }
+
+  async function loadLeaveTypes() {
+    leaveTypes = await HrisApi.get('/leaves/types');
+    document.getElementById('f-leave-type').innerHTML = leaveTypes.map((t) => `<option value="${t.leave_type_id}">${escapeHtml(t.name)}</option>`).join('');
+  }
+
+  async function loadBalance() {
+    const tbody = document.getElementById('balance-tbody');
+    try {
+      const rows = await HrisApi.get('/leaves/balance');
+      tbody.innerHTML = rows.map((r) => `
+        <tr><td>${escapeHtml(r.leave_type_name)}</td><td>${r.total_days}</td><td>${r.used_days}</td><td><strong>${r.remaining_days}</strong></td></tr>
+      `).join('') || `<tr><td colspan="4" class="text-muted">No balance records yet.</td></tr>`;
+    } catch (err) { tbody.innerHTML = `<tr><td colspan="4" class="text-danger">${escapeHtml(err.message)}</td></tr>`; }
+  }
+
+  async function loadHistory() {
+    const tbody = document.getElementById('history-tbody');
+    const colspan = canApprove ? 7 : 6;
+    tbody.innerHTML = `<tr><td colspan="${colspan}" class="text-muted">Loading...</td></tr>`;
+    try {
+      const res = await HrisApi.get('/leaves/history', { limit: 30 });
+      tbody.innerHTML = res.data.length ? res.data.map((r) => `
+        <tr>
+          ${canApprove ? `<td>${escapeHtml(r.employee_name)}</td>` : ''}
+          <td>${escapeHtml(r.leave_type_name)}</td>
+          <td>${formatDate(r.date_from)}</td>
+          <td>${formatDate(r.date_to)}</td>
+          <td>${r.total_days}</td>
+          <td><span class="badge ${statusBadgeClass(r.status)}">${r.status.replace('_', ' ')}</span></td>
+          <td>${(!canApprove && ['pending','supervisor_approved'].includes(r.status)) ? `<button class="btn btn-sm" data-cancel="${r.leave_request_id}">Cancel</button>` : ''}</td>
+        </tr>
+      `).join('') : `<tr><td colspan="${colspan}"><div class="empty-state"><i class="ti ti-calendar-off"></i>No leave requests found.</div></td></tr>`;
+
+      tbody.querySelectorAll('[data-cancel]').forEach((btn) => btn.addEventListener('click', async () => {
+        if (!confirm('Cancel this leave request?')) return;
+        try { await HrisApi.put(`/leaves/${btn.dataset.cancel}/cancel`); showToast('Leave request cancelled.', 'success'); loadHistory(); }
+        catch (err) { showToast(err.message, 'error'); }
+      }));
+    } catch (err) { tbody.innerHTML = `<tr><td colspan="${colspan}" class="text-danger">${escapeHtml(err.message)}</td></tr>`; }
+  }
+
+  async function loadApprovals() {
+    const tbody = document.getElementById('approvals-tbody');
+    tbody.innerHTML = `<tr><td colspan="7" class="text-muted">Loading...</td></tr>`;
+    try {
+      const rows = await HrisApi.get('/leaves/pending-approvals');
+      tbody.innerHTML = rows.length ? rows.map((r) => `
+        <tr>
+          <td>${escapeHtml(r.employee_name)}</td>
+          <td>${escapeHtml(r.leave_type_name)}</td>
+          <td>${formatDate(r.date_from)}</td>
+          <td>${formatDate(r.date_to)}</td>
+          <td>${r.total_days}</td>
+          <td>${escapeHtml(r.reason || '-')}</td>
+          <td style="white-space:nowrap;">
+            <button class="btn btn-sm btn-primary" data-approve="${r.leave_request_id}">Approve</button>
+            <button class="btn btn-sm btn-danger" data-reject="${r.leave_request_id}">Reject</button>
+          </td>
+        </tr>
+      `).join('') : `<tr><td colspan="7"><div class="empty-state"><i class="ti ti-check"></i>Nothing waiting for approval.</div></td></tr>`;
+
+      tbody.querySelectorAll('[data-approve]').forEach((btn) => btn.addEventListener('click', () => actionLeave(btn.dataset.approve, 'approve')));
+      tbody.querySelectorAll('[data-reject]').forEach((btn) => btn.addEventListener('click', () => actionLeave(btn.dataset.reject, 'reject')));
+    } catch (err) { tbody.innerHTML = `<tr><td colspan="7" class="text-danger">${escapeHtml(err.message)}</td></tr>`; }
+  }
+
+  async function actionLeave(id, action) {
+    const remarks = action === 'reject' ? prompt('Reason for rejection (optional):') || '' : '';
+    const endpoint = user.role === 'supervisor' ? `/leaves/${id}/supervisor-action` : `/leaves/${id}/hr-action`;
+    try {
+      const r = await HrisApi.put(endpoint, { action, remarks });
+      showToast(r.message, 'success');
+      loadApprovals();
+      loadHistory();
+    } catch (err) { showToast(err.message, 'error'); }
+  }
+
+  async function submitLeave(e) {
+    e.preventDefault();
+    const payload = {
+      leave_type_id: document.getElementById('f-leave-type').value,
+      date_from: document.getElementById('f-date-from').value,
+      date_to: document.getElementById('f-date-to').value,
+      reason: document.getElementById('f-reason').value
+    };
+    const btn = document.getElementById('apply-submit');
+    btn.disabled = true; btn.textContent = 'Submitting...';
+    try {
+      await HrisApi.post('/leaves/apply', payload);
+      showToast('Leave request submitted.', 'success');
+      closeApplyModal();
+      document.getElementById('apply-form').reset();
+      loadHistory();
+      loadBalance();
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { btn.disabled = false; btn.textContent = 'Submit request'; }
+  }
+})();
+</script>
+</body>
+</html>

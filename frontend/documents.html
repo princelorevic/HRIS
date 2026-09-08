@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Documents</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.47.0/iconfont/tabler-icons.min.css">
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="app-root" class="app-shell"></div>
+
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/toast.js"></script>
+<script src="js/layout.js"></script>
+<script>
+(async () => {
+  const user = await HrisLayout.init({ page: 'documents', title: 'Documents' });
+  if (!user) return;
+  const el = document.getElementById('page-content');
+  const isHr = user.role === 'hr';
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div><h1>Documents</h1><div class="subtitle">Contracts, certificates, government IDs, and other HR files.</div></div>
+    </div>
+
+    <div class="card card-pad" style="margin-bottom:20px;">
+      <div class="section-title">Upload a document</div>
+      <form id="upload-form">
+        <div class="field-row">
+          ${isHr ? `<div class="field"><label>Employee</label><select id="f-employee" required></select></div>` : ''}
+          <div class="field">
+            <label>Category</label>
+            <select id="f-category">
+              <option value="contract">Contract</option>
+              <option value="certificate">Certificate</option>
+              <option value="government_id">Government document</option>
+              <option value="payslip">Payslip</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+        </div>
+        <div class="field"><label>File</label><input type="file" id="f-file" required /></div>
+        <div class="form-actions"><button type="submit" class="btn btn-primary" id="upload-btn"><i class="ti ti-upload"></i> Upload</button></div>
+      </form>
+    </div>
+
+    <div class="card card-pad">
+      <div class="flex" style="justify-content:space-between; align-items:center; margin-bottom:14px;">
+        <div class="section-title" style="margin:0;">Files</div>
+        ${isHr ? `<select id="filter-employee" style="width:220px;"></select>` : ''}
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>File</th><th>Category</th><th>Uploaded</th><th></th></tr></thead>
+          <tbody id="docs-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  let employeeList = [];
+  if (isHr) {
+    employeeList = (await HrisApi.get('/employees', { limit: 200 })).data;
+    const options = employeeList.map((e) => `<option value="${e.employee_id}">${escapeHtml(e.first_name + ' ' + e.last_name)}</option>`).join('');
+    document.getElementById('f-employee').innerHTML = options;
+    document.getElementById('filter-employee').innerHTML = options;
+    document.getElementById('filter-employee').addEventListener('change', loadDocs);
+  }
+
+  await loadDocs();
+  document.getElementById('upload-form').addEventListener('submit', uploadDoc);
+
+  async function loadDocs() {
+    const tbody = document.getElementById('docs-tbody');
+    tbody.innerHTML = `<tr><td colspan="4" class="text-muted">Loading...</td></tr>`;
+    try {
+      const employeeId = isHr ? document.getElementById('filter-employee').value : user.employee_id;
+      const rows = await HrisApi.get('/documents', { employee_id: employeeId });
+      tbody.innerHTML = rows.length ? rows.map((d) => `
+        <tr>
+          <td><i class="ti ti-file-text" style="margin-right:6px; color:var(--text-muted);"></i>${escapeHtml(d.file_name)}</td>
+          <td><span class="badge badge-gray">${d.category.replace('_', ' ')}</span></td>
+          <td>${formatDate(d.uploaded_at)}</td>
+          <td style="text-align:right; white-space:nowrap;">
+            <a class="btn btn-sm" href="${UPLOADS_BASE}${d.file_path}" target="_blank"><i class="ti ti-download"></i></a>
+            <button class="btn btn-sm" data-delete="${d.document_id}"><i class="ti ti-trash"></i></button>
+          </td>
+        </tr>
+      `).join('') : `<tr><td colspan="4"><div class="empty-state"><i class="ti ti-file-off"></i>No documents uploaded yet.</div></td></tr>`;
+
+      tbody.querySelectorAll('[data-delete]').forEach((btn) => btn.addEventListener('click', async () => {
+        if (!confirm('Delete this document?')) return;
+        try { await HrisApi.del(`/documents/${btn.dataset.delete}`); showToast('Document deleted.', 'success'); loadDocs(); }
+        catch (err) { showToast(err.message, 'error'); }
+      }));
+    } catch (err) { tbody.innerHTML = `<tr><td colspan="4" class="text-danger">${escapeHtml(err.message)}</td></tr>`; }
+  }
+
+  async function uploadDoc(e) {
+    e.preventDefault();
+    const fileInput = document.getElementById('f-file');
+    if (!fileInput.files.length) return showToast('Please choose a file.', 'error');
+
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    formData.append('category', document.getElementById('f-category').value);
+    if (isHr) formData.append('employee_id', document.getElementById('f-employee').value);
+
+    const btn = document.getElementById('upload-btn');
+    btn.disabled = true; btn.textContent = 'Uploading...';
+    try {
+      await HrisApi.post('/documents', formData, { isForm: true });
+      showToast('Document uploaded.', 'success');
+      document.getElementById('upload-form').reset();
+      loadDocs();
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { btn.disabled = false; btn.innerHTML = '<i class="ti ti-upload"></i> Upload'; }
+  }
+})();
+</script>
+</body>
+</html>

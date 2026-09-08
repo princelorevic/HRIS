@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Attendance</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.47.0/iconfont/tabler-icons.min.css">
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="app-root" class="app-shell"></div>
+
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/toast.js"></script>
+<script src="js/layout.js"></script>
+<script>
+(async () => {
+  const user = await HrisLayout.init({ page: 'attendance', title: 'Attendance' });
+  if (!user) return;
+  const el = document.getElementById('page-content');
+  const canManage = user.role === 'hr' || user.role === 'supervisor';
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div><h1>Attendance</h1><div class="subtitle">Time in/out, history, and attendance reports.</div></div>
+      ${user.role === 'hr' ? `<button class="btn" id="export-btn"><i class="ti ti-download"></i> Export monthly (Excel)</button>` : ''}
+    </div>
+
+    <div class="card card-pad" style="margin-bottom:20px;">
+      <div class="section-title">Today</div>
+      <p class="text-muted" id="today-status" style="margin-bottom:14px;">Loading...</p>
+      <div class="flex gap-8">
+        <button class="btn btn-primary" id="btn-timein"><i class="ti ti-login-2"></i> Time in</button>
+        <button class="btn" id="btn-timeout"><i class="ti ti-logout-2"></i> Time out</button>
+      </div>
+    </div>
+
+    ${canManage ? `
+    <div class="card card-pad" style="margin-bottom:20px;">
+      <div class="flex" style="justify-content:space-between; align-items:center; margin-bottom:14px;">
+        <div class="section-title" style="margin:0;">${user.role === 'hr' ? "Today's team attendance" : "My team - today"}</div>
+        <input type="date" id="team-date" style="width:auto;" />
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Employee</th><th>Department</th><th>Time in</th><th>Time out</th><th>Status</th></tr></thead>
+          <tbody id="team-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+    ` : ''}
+
+    <div class="card card-pad">
+      <div class="section-title">My attendance history</div>
+      <div class="toolbar">
+        <input type="date" id="from-date" style="width:auto;" />
+        <input type="date" id="to-date" style="width:auto;" />
+        <button class="btn btn-sm" id="filter-history-btn">Filter</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Date</th><th>Time in</th><th>Time out</th><th>Status</th></tr></thead>
+          <tbody id="history-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  await loadToday();
+  await loadHistory();
+  if (canManage) await loadTeam();
+
+  document.getElementById('btn-timein').addEventListener('click', async () => {
+    try { showToast((await HrisApi.post('/attendance/time-in')).message, 'success'); await loadToday(); await loadHistory(); }
+    catch (err) { showToast(err.message, 'error'); }
+  });
+  document.getElementById('btn-timeout').addEventListener('click', async () => {
+    try { showToast((await HrisApi.post('/attendance/time-out')).message, 'success'); await loadToday(); await loadHistory(); }
+    catch (err) { showToast(err.message, 'error'); }
+  });
+  document.getElementById('filter-history-btn').addEventListener('click', loadHistory);
+  if (canManage) document.getElementById('team-date').addEventListener('change', loadTeam);
+  if (user.role === 'hr') {
+    document.getElementById('export-btn').addEventListener('click', async () => {
+      const now = new Date();
+      try {
+        await HrisApi.downloadFile('/reports/attendance/excel', { year: now.getFullYear(), month: now.getMonth() + 1 }, 'attendance_report.xlsx');
+      } catch (err) { showToast(err.message, 'error'); }
+    });
+  }
+
+  async function loadToday() {
+    const box = document.getElementById('today-status');
+    try {
+      const today = await HrisApi.get('/attendance/today');
+      if (!today) { box.textContent = 'You have not timed in yet today.'; document.getElementById('btn-timein').disabled = false; document.getElementById('btn-timeout').disabled = true; return; }
+      box.innerHTML = `Timed in at <strong>${today.time_in || '-'}</strong> ${today.time_out ? `· Timed out at <strong>${today.time_out}</strong>` : ''} <span class="badge ${statusBadgeClass(today.status)}">${today.status}</span>`;
+      document.getElementById('btn-timein').disabled = !!today.time_in;
+      document.getElementById('btn-timeout').disabled = !today.time_in || !!today.time_out;
+    } catch (err) { box.textContent = err.message; }
+  }
+
+  async function loadHistory() {
+    const tbody = document.getElementById('history-tbody');
+    tbody.innerHTML = `<tr><td colspan="4" class="text-muted">Loading...</td></tr>`;
+    try {
+      const res = await HrisApi.get('/attendance/history', {
+        employee_id: user.employee_id,
+        from: document.getElementById('from-date').value,
+        to: document.getElementById('to-date').value,
+        limit: 30
+      });
+      tbody.innerHTML = res.data.length ? res.data.map((a) => `
+        <tr><td>${formatDate(a.log_date)}</td><td>${a.time_in || '-'}</td><td>${a.time_out || '-'}</td>
+        <td><span class="badge ${statusBadgeClass(a.status)}">${a.status}</span></td></tr>
+      `).join('') : `<tr><td colspan="4"><div class="empty-state"><i class="ti ti-calendar-off"></i>No attendance records found.</div></td></tr>`;
+    } catch (err) { tbody.innerHTML = `<tr><td colspan="4" class="text-danger">${escapeHtml(err.message)}</td></tr>`; }
+  }
+
+  async function loadTeam() {
+    const tbody = document.getElementById('team-tbody');
+    const dateInput = document.getElementById('team-date');
+    if (!dateInput.value) dateInput.value = new Date().toISOString().slice(0, 10);
+    tbody.innerHTML = `<tr><td colspan="5" class="text-muted">Loading...</td></tr>`;
+    try {
+      const rows = await HrisApi.get('/attendance/team', { date: dateInput.value });
+      tbody.innerHTML = rows.length ? rows.map((r) => `
+        <tr>
+          <td>${escapeHtml(r.employee_name)}</td>
+          <td>${escapeHtml(r.department_name || '-')}</td>
+          <td>${r.time_in || '-'}</td>
+          <td>${r.time_out || '-'}</td>
+          <td>${r.status ? `<span class="badge ${statusBadgeClass(r.status)}">${r.status}</span>` : `<span class="badge badge-gray">no record</span>`}</td>
+        </tr>
+      `).join('') : `<tr><td colspan="5"><div class="empty-state"><i class="ti ti-users"></i>No team members found.</div></td></tr>`;
+    } catch (err) { tbody.innerHTML = `<tr><td colspan="5" class="text-danger">${escapeHtml(err.message)}</td></tr>`; }
+  }
+})();
+</script>
+</body>
+</html>

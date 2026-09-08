@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Activity Logs</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.47.0/iconfont/tabler-icons.min.css">
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="app-root" class="app-shell"></div>
+
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/toast.js"></script>
+<script src="js/layout.js"></script>
+<script>
+(async () => {
+  const user = await HrisLayout.init({ page: 'audit', title: 'Activity logs' });
+  if (!user) return;
+  if (user.role !== 'hr') {
+    document.getElementById('page-content').innerHTML = `<div class="empty-state"><i class="ti ti-lock"></i>This page is only available to HR.</div>`;
+    return;
+  }
+  const el = document.getElementById('page-content');
+  let currentPage = 1;
+
+  el.innerHTML = `
+    <div class="page-head"><div><h1>Activity logs</h1><div class="subtitle">System-wide record of who did what, and when.</div></div></div>
+    <div class="card card-pad">
+      <div class="toolbar">
+        <div class="search-box"><i class="ti ti-search"></i><input id="filter-action" placeholder="Filter by action, e.g. LOGIN" /></div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>User</th><th>Action</th><th>Entity</th><th>Details</th><th>Date</th></tr></thead>
+          <tbody id="logs-tbody"></tbody>
+        </table>
+      </div>
+      <div class="pagination" id="pagination"></div>
+    </div>
+  `;
+
+  await loadLogs();
+  document.getElementById('filter-action').addEventListener('input', debounce(() => { currentPage = 1; loadLogs(); }, 350));
+
+  async function loadLogs() {
+    const tbody = document.getElementById('logs-tbody');
+    tbody.innerHTML = `<tr><td colspan="5" class="text-muted">Loading...</td></tr>`;
+    try {
+      const res = await HrisApi.get('/audit-logs', { action: document.getElementById('filter-action').value, page: currentPage, limit: 25 });
+      tbody.innerHTML = res.data.length ? res.data.map((l) => `
+        <tr>
+          <td>${escapeHtml(l.username || 'System')}</td>
+          <td><span class="badge badge-gray">${escapeHtml(l.action)}</span></td>
+          <td>${l.entity_type ? `${escapeHtml(l.entity_type)} #${l.entity_id}` : '-'}</td>
+          <td class="text-muted">${escapeHtml(l.details || '-')}</td>
+          <td>${formatDateTime(l.created_at)}</td>
+        </tr>
+      `).join('') : `<tr><td colspan="5"><div class="empty-state"><i class="ti ti-history"></i>No activity recorded yet.</div></td></tr>`;
+
+      const p = res.pagination;
+      const totalPages = Math.max(1, Math.ceil(p.total / p.limit));
+      document.getElementById('pagination').innerHTML = `
+        <span>Page ${p.page} of ${totalPages} (${p.total} entries)</span>
+        <div class="btns">
+          <button class="btn btn-sm" id="prev" ${p.page <= 1 ? 'disabled' : ''}>Previous</button>
+          <button class="btn btn-sm" id="next" ${p.page >= totalPages ? 'disabled' : ''}>Next</button>
+        </div>`;
+      document.getElementById('prev')?.addEventListener('click', () => { currentPage--; loadLogs(); });
+      document.getElementById('next')?.addEventListener('click', () => { currentPage++; loadLogs(); });
+    } catch (err) { tbody.innerHTML = `<tr><td colspan="5" class="text-danger">${escapeHtml(err.message)}</td></tr>`; }
+  }
+
+  function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+})();
+</script>
+</body>
+</html>

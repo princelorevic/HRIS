@@ -1,0 +1,11 @@
+backend/node_modules/
+backend/.env
+backend/uploads/documents/*
+backend/uploads/logo/*
+!backend/uploads/documents/.gitkeep
+!backend/uploads/logo/.gitkeep
+.DS_Store
+node_modules/
+.env
+*.log
+.DS_Store

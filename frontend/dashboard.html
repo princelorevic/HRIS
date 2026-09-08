@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dashboard</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.47.0/iconfont/tabler-icons.min.css">
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="app-root" class="app-shell"></div>
+
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/toast.js"></script>
+<script src="js/layout.js"></script>
+<script>
+(async () => {
+  const user = await HrisLayout.init({ page: 'dashboard', title: 'Dashboard' });
+  if (!user) return;
+  const el = document.getElementById('page-content');
+
+  if (user.role === 'hr') {
+    await renderHrDashboard(el);
+  } else {
+    await renderPersonalDashboard(el, user);
+  }
+
+  async function renderHrDashboard(el) {
+    el.innerHTML = `<div class="empty-state"><i class="ti ti-loader-2"></i>Loading dashboard...</div>`;
+    try {
+      const s = await HrisApi.get('/dashboard/summary');
+      el.innerHTML = `
+        <div class="stat-strip">
+          <div class="stat-cell"><div class="stat-label">Total employees</div><div class="stat-value">${s.total_employees}</div></div>
+          <div class="stat-cell"><div class="stat-label">Active (regular)</div><div class="stat-value teal">${s.active_employees}</div></div>
+          <div class="stat-cell"><div class="stat-label">Probationary</div><div class="stat-value amber">${s.probationary_employees}</div></div>
+          <div class="stat-cell"><div class="stat-label">Present today</div><div class="stat-value teal">${s.present_today}</div></div>
+          <div class="stat-cell"><div class="stat-label">On leave today</div><div class="stat-value">${s.on_leave_today}</div></div>
+          <div class="stat-cell"><div class="stat-label">Pending leave requests</div><div class="stat-value amber">${s.pending_leave_requests}</div></div>
+          <div class="stat-cell"><div class="stat-label">New hires this month</div><div class="stat-value">${s.new_hires_this_month}</div></div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card card-pad">
+            <div class="section-title">Employees by department</div>
+            ${s.by_department.map((d) => `
+              <div class="flex" style="justify-content:space-between; padding:9px 0; border-bottom:1px solid var(--border);">
+                <span>${escapeHtml(d.department_name)}</span>
+                <strong>${d.count}</strong>
+              </div>
+            `).join('') || '<p class="text-muted">No departments yet.</p>'}
+          </div>
+
+          <div class="card card-pad">
+            <div class="section-title">Recent activity</div>
+            ${s.recent_activity.map((a) => `
+              <div style="padding:9px 0; border-bottom:1px solid var(--border);">
+                <div style="font-size:13.5px;"><strong>${escapeHtml(a.username || 'System')}</strong> — ${escapeHtml(a.action)}</div>
+                <div class="text-muted" style="font-size:12px; margin-top:2px;">${formatDateTime(a.created_at)}</div>
+              </div>
+            `).join('') || '<p class="text-muted">No activity yet.</p>'}
+          </div>
+        </div>
+      `;
+    } catch (err) {
+      el.innerHTML = `<div class="empty-state"><i class="ti ti-alert-circle"></i>${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  async function renderPersonalDashboard(el, user) {
+    el.innerHTML = `<div class="empty-state"><i class="ti ti-loader-2"></i>Loading dashboard...</div>`;
+    try {
+      const [summary, today] = await Promise.all([
+        HrisApi.get('/dashboard/my-summary'),
+        HrisApi.get('/attendance/today')
+      ]);
+
+      const timedIn = today && today.time_in;
+      const timedOut = today && today.time_out;
+
+      el.innerHTML = `
+        <div class="grid-2">
+          <div class="card card-pad">
+            <div class="section-title">Today's attendance</div>
+            <p class="text-muted" style="margin-bottom:14px;">
+              ${timedIn ? `Timed in at <strong>${today.time_in}</strong>` : 'You have not timed in yet.'}
+              ${timedOut ? ` · Timed out at <strong>${today.time_out}</strong>` : ''}
+            </p>
+            <div class="flex gap-8">
+              <button class="btn btn-primary" id="btn-timein" ${timedIn ? 'disabled' : ''}><i class="ti ti-login-2"></i> Time in</button>
+              <button class="btn" id="btn-timeout" ${(!timedIn || timedOut) ? 'disabled' : ''}><i class="ti ti-logout-2"></i> Time out</button>
+            </div>
+          </div>
+
+          <div class="card card-pad">
+            <div class="section-title">This month</div>
+            <div class="flex" style="justify-content:space-between; padding:6px 0;"><span class="text-muted">Present days</span><strong>${summary.attendance_this_month.present_days}</strong></div>
+            <div class="flex" style="justify-content:space-between; padding:6px 0;"><span class="text-muted">Late days</span><strong>${summary.attendance_this_month.late_days}</strong></div>
+            <div class="flex" style="justify-content:space-between; padding:6px 0;"><span class="text-muted">Absent days</span><strong>${summary.attendance_this_month.absent_days}</strong></div>
+            <div class="flex" style="justify-content:space-between; padding:6px 0;"><span class="text-muted">Pending leave requests</span><strong>${summary.pending_own_leaves}</strong></div>
+            ${summary.team_pending_approvals !== null ? `<div class="flex" style="justify-content:space-between; padding:6px 0;"><span class="text-muted">Team approvals waiting</span><strong>${summary.team_pending_approvals}</strong></div>` : ''}
+          </div>
+        </div>
+
+        <div class="card card-pad mt-16">
+          <div class="section-title">Leave balances</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Leave type</th><th>Remaining days</th></tr></thead>
+              <tbody>
+                ${summary.leave_balances.map((b) => `<tr><td>${escapeHtml(b.name)}</td><td>${b.remaining}</td></tr>`).join('') || '<tr><td colspan="2" class="text-muted">No leave balances yet.</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+
+      document.getElementById('btn-timein').addEventListener('click', async () => {
+        try {
+          const r = await HrisApi.post('/attendance/time-in');
+          showToast(r.message, 'success');
+          renderPersonalDashboard(el, user);
+        } catch (err) { showToast(err.message, 'error'); }
+      });
+      document.getElementById('btn-timeout').addEventListener('click', async () => {
+        try {
+          const r = await HrisApi.post('/attendance/time-out');
+          showToast(r.message, 'success');
+          renderPersonalDashboard(el, user);
+        } catch (err) { showToast(err.message, 'error'); }
+      });
+    } catch (err) {
+      el.innerHTML = `<div class="empty-state"><i class="ti ti-alert-circle"></i>${escapeHtml(err.message)}</div>`;
+    }
+  }
+})();
+</script>
+</body>
+</html>

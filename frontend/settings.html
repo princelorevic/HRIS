@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Settings</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.47.0/iconfont/tabler-icons.min.css">
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="app-root" class="app-shell"></div>
+
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/toast.js"></script>
+<script src="js/layout.js"></script>
+<script>
+(async () => {
+  const user = await HrisLayout.init({ page: 'settings', title: 'Settings' });
+  if (!user) return;
+  const el = document.getElementById('page-content');
+  const isHr = user.role === 'hr';
+
+  el.innerHTML = `
+    <div class="page-head"><div><h1>Settings</h1><div class="subtitle">System branding and account security.</div></div></div>
+
+    ${isHr ? `
+    <div class="card card-pad" style="margin-bottom:20px;">
+      <div class="section-title">Company branding</div>
+      <p class="text-muted" style="margin-bottom:16px; font-size:13px;">Change the logo shown on the login page and sidebar at any time.</p>
+
+      <div class="flex" style="align-items:center; gap:18px; margin-bottom:20px;">
+        <img id="current-logo" src="" style="height:64px; width:64px; object-fit:contain; border:1px solid var(--border); border-radius:12px; padding:6px; background:#fff;" />
+        <div>
+          <input type="file" id="logo-file" accept=".png,.jpg,.jpeg,.svg,.webp" />
+          <div class="text-muted" style="font-size:12px; margin-top:6px;">PNG, JPG, SVG, or WEBP. Max 3MB.</div>
+        </div>
+        <button class="btn btn-primary" id="logo-upload-btn"><i class="ti ti-upload"></i> Upload new logo</button>
+      </div>
+
+      <div class="field"><label>Company name</label><input id="company-name" /></div>
+      <div class="form-actions"><button class="btn btn-primary" id="save-company-btn">Save changes</button></div>
+    </div>
+    ` : ''}
+
+    <div class="card card-pad">
+      <div class="section-title">Change password</div>
+      <div class="field"><label>Current password</label><input type="password" id="current-password" /></div>
+      <div class="field"><label>New password</label><input type="password" id="new-password" /></div>
+      <div class="field"><label>Confirm new password</label><input type="password" id="confirm-password" /></div>
+      <div class="form-actions"><button class="btn btn-primary" id="change-password-btn">Update password</button></div>
+    </div>
+  `;
+
+  if (isHr) {
+    const settings = await HrisApi.get('/settings');
+    document.getElementById('current-logo').src = HrisLayout.logoSrc();
+    document.getElementById('company-name').value = settings.company_name || '';
+
+    document.getElementById('logo-upload-btn').addEventListener('click', async () => {
+      const fileInput = document.getElementById('logo-file');
+      if (!fileInput.files.length) return showToast('Please choose a logo file first.', 'error');
+      const formData = new FormData();
+      formData.append('logo', fileInput.files[0]);
+      try {
+        await HrisApi.post('/settings/logo', formData, { isForm: true });
+        showToast('Logo updated. Refresh to see it everywhere.', 'success');
+        await HrisLayout.loadSettings();
+        document.getElementById('current-logo').src = HrisLayout.logoSrc();
+      } catch (err) { showToast(err.message, 'error'); }
+    });
+
+    document.getElementById('save-company-btn').addEventListener('click', async () => {
+      try {
+        await HrisApi.put('/settings', { company_name: document.getElementById('company-name').value });
+        showToast('Settings saved.', 'success');
+      } catch (err) { showToast(err.message, 'error'); }
+    });
+  }
+
+  document.getElementById('change-password-btn').addEventListener('click', async () => {
+    const currentPassword = document.getElementById('current-password').value;
+    const newPassword = document.getElementById('new-password').value;
+    const confirmPassword = document.getElementById('confirm-password').value;
+
+    if (!currentPassword || !newPassword) return showToast('Please fill out all password fields.', 'error');
+    if (newPassword !== confirmPassword) return showToast('New passwords do not match.', 'error');
+
+    try {
+      await HrisApi.post('/auth/change-password', { currentPassword, newPassword });
+      showToast('Password updated.', 'success');
+      document.getElementById('current-password').value = '';
+      document.getElementById('new-password').value = '';
+      document.getElementById('confirm-password').value = '';
+    } catch (err) { showToast(err.message, 'error'); }
+  });
+})();
+</script>
+</body>
+</html>

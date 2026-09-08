@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Reports</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.47.0/iconfont/tabler-icons.min.css">
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="app-root" class="app-shell"></div>
+
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/toast.js"></script>
+<script src="js/layout.js"></script>
+<script>
+(async () => {
+  const user = await HrisLayout.init({ page: 'reports', title: 'Reports' });
+  if (!user) return;
+  if (user.role !== 'hr') {
+    document.getElementById('page-content').innerHTML = `<div class="empty-state"><i class="ti ti-lock"></i>This page is only available to HR.</div>`;
+    return;
+  }
+  const el = document.getElementById('page-content');
+  const now = new Date();
+
+  el.innerHTML = `
+    <div class="page-head"><div><h1>Reports</h1><div class="subtitle">Download HR data as Excel or PDF files.</div></div></div>
+
+    <div class="grid-3">
+      <div class="card card-pad">
+        <div class="section-title"><i class="ti ti-users" style="margin-right:6px;"></i>Employee list</div>
+        <p class="text-muted" style="margin-bottom:16px; font-size:13px;">Full roster with department, position, and status.</p>
+        <button class="btn btn-primary" id="export-employees"><i class="ti ti-file-spreadsheet"></i> Export Excel</button>
+      </div>
+
+      <div class="card card-pad">
+        <div class="section-title"><i class="ti ti-clock" style="margin-right:6px;"></i>Attendance report</div>
+        <div class="field-row" style="margin-bottom:12px;">
+          <div class="field" style="margin-bottom:0;"><label>Year</label><input type="number" id="att-year" value="${now.getFullYear()}" /></div>
+          <div class="field" style="margin-bottom:0;"><label>Month</label>
+            <select id="att-month">
+              ${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${i+1===now.getMonth()+1?'selected':''}>${new Date(0,i).toLocaleString('en',{month:'long'})}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-primary" id="export-attendance"><i class="ti ti-file-spreadsheet"></i> Export Excel</button>
+      </div>
+
+      <div class="card card-pad">
+        <div class="section-title"><i class="ti ti-calendar-time" style="margin-right:6px;"></i>Leave report</div>
+        <div class="field" style="margin-bottom:12px;"><label>Year</label><input type="number" id="leave-year" value="${now.getFullYear()}" /></div>
+        <button class="btn btn-primary" id="export-leaves"><i class="ti ti-file-type-pdf"></i> Export PDF</button>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('export-employees').addEventListener('click', async (e) => {
+    await runExport(e.target, () => HrisApi.downloadFile('/reports/employees/excel', {}, 'employees_report.xlsx'));
+  });
+  document.getElementById('export-attendance').addEventListener('click', async (e) => {
+    await runExport(e.target, () => HrisApi.downloadFile('/reports/attendance/excel', {
+      year: document.getElementById('att-year').value, month: document.getElementById('att-month').value
+    }, 'attendance_report.xlsx'));
+  });
+  document.getElementById('export-leaves').addEventListener('click', async (e) => {
+    await runExport(e.target, () => HrisApi.downloadFile('/reports/leaves/pdf', {
+      year: document.getElementById('leave-year').value
+    }, `leave_report_${document.getElementById('leave-year').value}.pdf`));
+  });
+
+  async function runExport(btn, fn) {
+    const original = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = 'Generating...';
+    try { await fn(); showToast('Report downloaded.', 'success'); }
+    catch (err) { showToast(err.message, 'error'); }
+    finally { btn.disabled = false; btn.innerHTML = original; }
+  }
+})();
+</script>
+</body>
+</html>

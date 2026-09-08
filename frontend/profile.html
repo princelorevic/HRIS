@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>My Profile</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.47.0/iconfont/tabler-icons.min.css">
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="app-root" class="app-shell"></div>
+
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/toast.js"></script>
+<script src="js/layout.js"></script>
+<script>
+(async () => {
+  const user = await HrisLayout.init({ page: 'profile', title: 'My profile' });
+  if (!user) return;
+  const el = document.getElementById('page-content');
+
+  const params = new URLSearchParams(location.search);
+  const employeeId = params.get('id') || user.employee_id;
+  const viewingSelf = String(employeeId) === String(user.employee_id);
+
+  el.innerHTML = `<div class="empty-state"><i class="ti ti-loader-2"></i>Loading profile...</div>`;
+
+  try {
+    const emp = await HrisApi.get(`/employees/${employeeId}`);
+    el.innerHTML = `
+      <div class="page-head">
+        <div>
+          <h1>${escapeHtml(emp.first_name + ' ' + emp.last_name)}</h1>
+          <div class="subtitle">${escapeHtml(emp.position_title || 'No position assigned')} · ${escapeHtml(emp.department_name || 'No department')}</div>
+        </div>
+        <span class="badge ${statusBadgeClass(emp.employment_status)}">${emp.employment_status}</span>
+      </div>
+
+      <div class="grid-2">
+        <div class="card card-pad">
+          <div class="section-title">Employment details</div>
+          ${row('Employee code', emp.employee_code)}
+          ${row('Department', emp.department_name)}
+          ${row('Position', emp.position_title)}
+          ${row('Supervisor', emp.supervisor_name)}
+          ${row('Date hired', formatDate(emp.date_hired))}
+          ${emp.date_separated ? row('Date separated', formatDate(emp.date_separated)) : ''}
+        </div>
+
+        <div class="card card-pad">
+          <div class="section-title">Contact information</div>
+          ${row('Contact number', emp.contact_number)}
+          ${row('Address', emp.address)}
+          ${row('Email', emp.email)}
+          ${row('Username', emp.username)}
+        </div>
+      </div>
+
+      <div class="card card-pad mt-16">
+        <div class="section-title">Emergency contact</div>
+        ${row('Name', emp.emergency_contact_name)}
+        ${row('Number', emp.emergency_contact_number)}
+        ${row('Relationship', emp.emergency_contact_relation)}
+      </div>
+
+      ${viewingSelf ? `<p class="text-muted mt-16" style="font-size:13px;">To update your information, please contact HR. To change your password, go to Settings.</p>` : ''}
+    `;
+  } catch (err) {
+    el.innerHTML = `<div class="empty-state"><i class="ti ti-alert-circle"></i>${escapeHtml(err.message)}</div>`;
+  }
+
+  function row(label, value) {
+    return `
+      <div class="flex" style="justify-content:space-between; padding:9px 0; border-bottom:1px solid var(--border);">
+        <span class="text-muted">${label}</span><span>${escapeHtml(value || '-')}</span>
+      </div>
+    `;
+  }
+})();
+</script>
+</body>
+</html>
