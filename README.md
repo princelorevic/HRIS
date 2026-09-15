@@ -47,7 +47,7 @@ Open `.env` and fill in your MySQL credentials:
 DB_HOST=localhost
 DB_PORT=3306
 DB_USER=root
-DB_PASSWORD=your_mysql_password
+DB_PASSWORD=roxas032920
 DB_NAME=hris_db
 JWT_SECRET=replace_with_a_long_random_string
 ```
@@ -191,3 +191,7 @@ hris/
 - **DB connection failed** in the backend console → double-check `.env` values and that you ran `database/schema.sql` first.
 - **CORS errors in the browser console** → set `CLIENT_URL` in the backend `.env` to match the exact URL you're opening the frontend from.
 - **Login works but pages redirect back to login** → the JWT may have expired (`JWT_EXPIRES_IN`); just log in again.
+
+## 9. How to Run and Test
+- You need to add terminal and run cd backend (`"npm run dev  or npm run start "`)
+- You need to add terminal and run cd frontend (`"npx serve ."`)
